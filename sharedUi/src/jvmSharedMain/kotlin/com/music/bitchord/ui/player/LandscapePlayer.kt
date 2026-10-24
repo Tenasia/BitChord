@@ -399,6 +399,12 @@ internal fun LandscapeMainPane(
             Spacer(Modifier.height(if (compact) 0.dp else 12.dp))
             volume()
         }
+        // Not on a phone-height window, which has no room to spare. Adding it
+        // to the bottom of this centred column is also what lifts the column.
+        if (!compact) {
+            Spacer(Modifier.height(10.dp))
+            SpectrumBars()
+        }
     }
 }
 

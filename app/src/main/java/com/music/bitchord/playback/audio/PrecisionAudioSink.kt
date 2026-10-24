@@ -11,6 +11,7 @@ import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.audio.ForwardingAudioSink
 import com.music.bitchord.BuildConfig
 import com.music.bitchord.playback.AudioOutputStatus
+import com.music.bitchord.playback.AudioSpectrum
 import com.music.bitchord.playback.audio.usb.DirectAudioOutput
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -137,6 +138,9 @@ class PrecisionAudioSink(
      */
     private var processedEndUs: Long = C.TIME_UNSET
 
+    /** Feeds the player's visualizer; only the audible sink's reaches it. */
+    private val spectrum = SpectrumTap()
+
     override fun configure(audioSinkConfig: AudioSink.AudioSinkConfig) {
         val format = audioSinkConfig.format
         activeFormat = format
@@ -153,6 +157,7 @@ class PrecisionAudioSink(
                 // 2. Ensure internal buffers are sized for max frames and channel count
                 ensureBuffers(channelCount)
                 configuredSampleRate = sampleRate
+                spectrum.configure(sampleRate)
 
                 // 3. Determine target output encoding
                 val floatFormat = format.buildUpon()
@@ -354,6 +359,7 @@ class PrecisionAudioSink(
             outputByteBuffer.flip()
 
             val blockTimeUs = advanceTimestamp(presentationTimeUs, framesEmittedForInput)
+            if (isAudible()) spectrum.analyze(audioBlock, blockTimeUs)
             if (blockTimeUs != C.TIME_UNSET && configuredSampleRate > 0) {
                 processedEndUs = blockTimeUs + Util.sampleCountToDurationUs(decodedFrames.toLong(), configuredSampleRate)
             }
@@ -417,7 +423,15 @@ class PrecisionAudioSink(
         if (position != AudioSink.CURRENT_POSITION_NOT_SET && processed != C.TIME_UNSET) {
             dspChain.transition.leadUs = (processed - position).coerceAtLeast(0L)
         }
+        if (position != AudioSink.CURRENT_POSITION_NOT_SET && isAudible()) {
+            spectrum.onPosition(position)
+        }
         return position
+    }
+
+    override fun pause() {
+        if (isAudible()) AudioSpectrum.clear()
+        super.pause()
     }
 
     override fun flush() {
@@ -431,6 +445,8 @@ class PrecisionAudioSink(
         pendingAccessUnitCount = 0
         timestampedInputTimeUs = C.TIME_UNSET
         framesEmittedForInput = 0L
+        spectrum.reset()
+        if (isAudible()) AudioSpectrum.clear()
         if (isPrecisionActive) {
             dspChain.flush()
         }
@@ -449,6 +465,7 @@ class PrecisionAudioSink(
         pendingAccessUnitCount = 0
         timestampedInputTimeUs = C.TIME_UNSET
         framesEmittedForInput = 0L
+        spectrum.reset()
         if (isPrecisionActive) {
             dspChain.reset()
         }
